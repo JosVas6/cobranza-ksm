@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="cobranza">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
 <meta name="theme-color" content="#000000">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>cobranza k.s.m.</title>
@@ -442,7 +448,8 @@ async function enter(ses){
 async function boot(){
   document.body.classList.add('out');
   if (!window.supabase) return showLogin('no se pudo cargar supabase. revisa tu conexión y recarga la página.');
-  sb = window.supabase.createClient(SB_URL, SB_KEY);
+  sb = window.supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, storage:window.localStorage}});
+  try{ const em = localStorage.getItem('ksm-email'); if (em) $('#lem').value = em; }catch(e){}
   let ses = null; try{ ses = (await sb.auth.getSession()).data.session; }catch(e){}
   if (ses) await enter(ses); else showLogin('');
 }
@@ -646,7 +653,7 @@ $('#lf').addEventListener('submit', async e=>{
   e.preventDefault(); const bt = $('#lbt'); bt.disabled = true; $('#lerr').textContent = '';
   try{
     const {data, error} = await sb.auth.signInWithPassword({email:$('#lem').value.trim(), password:$('#lpw').value});
-    if (error) throw error; $('#lpw').value = ''; await enter(data.session);
+    if (error) throw error; try{ localStorage.setItem('ksm-email', $('#lem').value.trim()); }catch(e){} $('#lpw').value = ''; await enter(data.session);
   }catch(err){ $('#lerr').textContent = /invalid/i.test((err && err.message) || '') ? 'correo o contraseña incorrectos' : 'no se pudo iniciar sesión'; }
   bt.disabled = false;
 });
