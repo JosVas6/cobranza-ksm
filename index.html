@@ -59,6 +59,7 @@ nav button.on{background:var(--acc2);color:var(--acc);border-color:var(--acc)}
 .btn.s{padding:5px 10px;font-size:13px}
 .btn.x{color:var(--mut)}
 textarea{width:100%;min-height:96px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;resize:vertical}
+.dsm{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:4px 6px;font-size:13px;margin-left:4px}
 .hint{color:var(--mut);font-size:12px;margin:4px 0 0}
 .day{display:flex;gap:10px;align-items:center;justify-content:space-between}
 .day .info b{display:block}.day .info span{color:var(--mut);font-size:12.5px}
@@ -118,9 +119,11 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
   <section class="view" id="v2">
     <div class="card">
       <h3>cuentas del día</h3>
-      <div class="kv"><span id="arrLbl">(+) arrastre</span><span class="line" style="margin:0"><input class="m" id="arr" inputmode="decimal" style="width:100px;text-align:right"></span></div>
+      <div class="kv"><span>(+) arrastre del día <input type="date" id="arrDay" class="dsm"></span><span class="line" style="margin:0"><input class="m" id="arr" inputmode="decimal" style="width:100px;text-align:right"></span></div>
       <p class="hint" id="arrHint"></p>
       <div class="kv"><span>(+) cobranza del día de hoy</span><b id="sCob"></b></div>
+      <div id="iList"></div>
+      <div style="margin:4px 0 8px"><button class="btn s" id="iAdd">+ agregar ingreso</button> <span class="hint">máximo 2 líneas, como en la planilla</span></div>
       <div class="kv"><span>suma</span><b id="sSum"></b></div>
       <div class="kv"><span>(−) gastos / entregas</span><b id="sGas"></b></div>
       <div class="kv t"><span>total</span><span id="sTot"></span></div>
@@ -241,14 +244,21 @@ function buildXlsx(TPL, day, clients, collector) {
   const f2 = get('xl/worksheets/sheet2.xml'); let x2 = dec.decode(f2.data);
   const gastos = (day.gastos || []).filter(g => g && (g.d || g.m)).slice(0, 13);
   const gTot = gastos.reduce((s, g) => s + num(g.m), 0);
+  const ingresos = (day.ingresos || []).filter(g => g && (g.d || g.m)).slice(0, 2);
+  const iTot = ingresos.reduce((s, g) => s + num(g.m), 0);
   const cob = sumL + sumR, arr = num(day.arr);
   x2 = setCell(x2, 'E1', day.date.slice(8, 10) + ' - ' + day.date.slice(5, 7) + ' - ' + day.date.slice(0, 4));
   x2 = setCell(x2, 'A4', '(+) VIENEN ARRASTRE' + (day.arrLabel ? ' DEL DÍA ' + day.arrLabel : ''));
   x2 = setCell(x2, 'C4', arr);
   x2 = setCell(x2, 'C5', cob);
-  x2 = setCell(x2, 'C8', { f: 'SUM(C4:C7)', v: arr + cob });
+  for (let i = 0; i < 2; i++) {
+    const g = ingresos[i], d = g ? String(g.d || '').trim() : '';
+    x2 = setCell(x2, 'A' + (6 + i), g ? (/^\(\+\)/.test(d) ? d : '(+) ' + d) : '');
+    x2 = setCell(x2, 'C' + (6 + i), g && typeof g.m === 'number' ? g.m : undefined);
+  }
+  x2 = setCell(x2, 'C8', { f: 'SUM(C4:C7)', v: arr + cob + iTot });
   x2 = setCell(x2, 'C9', gTot);
-  x2 = setCell(x2, 'C10', { f: 'C8-C9', v: arr + cob - gTot });
+  x2 = setCell(x2, 'C10', { f: 'C8-C9', v: arr + cob + iTot - gTot });
   for (let i = 0; i < 13; i++) {
     const g = gastos[i];
     x2 = setCell(x2, 'D' + (4 + i), g ? (i + 1) + '. ' + g.d : '');
@@ -346,7 +356,13 @@ function parseCobranza(sheets) {
     if (d !== undefined || g !== undefined) { const o = { d: String(d ?? '').replace(/^\s*\d+\.\s*/, '').trim() }; if (typeof g === 'number') o.m = g; gastos.push(o); }
   }
   const col = (c) => { const a = []; for (let r = 30; r <= 48; r++) if (m2[c + r] !== undefined && String(m2[c + r]).trim()) a.push(String(m2[c + r]).trim()); return a.join('\n'); };
+  const ingresos = [];
+  for (const r of [6, 7]) {
+    const d = m2['A' + r], g = m2['C' + r];
+    if ((d !== undefined && String(d).trim()) || typeof g === 'number') { const o = { d: String(d ?? '').replace(/^\s*\(\+\)\s*/, '').trim() }; if (typeof g === 'number') o.m = g; ingresos.push(o); }
+  }
   const day = { cl, gastos, pedidos: col('A'), sugerencias: col('D') };
+  if (ingresos.length) day.ingresos = ingresos;
   if (typeof m2.C4 === 'number') day.arr = m2.C4;
   const al = String(m2.A4 || '').match(/D[ÍI]A\s+(\d{1,2}\/\d{1,2})/); if (al) day.arrLabel = al[1];
   return { clients, day, date, collector: cm ? cm[1].trim() : '' };
@@ -379,10 +395,10 @@ function compute(){
   for (const dt of dates){
     const d = S.days[dt] || {cl:{}, gastos:[]};
     let cob = 0; for (const k in d.cl) cob += nz(d.cl[k].c);
-    const gas = (d.gastos||[]).reduce((s,g)=>s+nz(g.m),0);
+    const gas = (d.gastos||[]).reduce((s,g)=>s+nz(g.m),0), ing = (d.ingresos||[]).reduce((s,g)=>s+nz(g.m),0);
     const auto = prev ? out[prev].total : 0, manual = typeof d.arr === 'number';
     const arr = manual ? d.arr : auto;
-    out[dt] = {cob, gas, arr, manual, auto, prevDate:prev, total: arr + cob - gas};
+    out[dt] = {cob, gas, ing, arr, manual, auto, prevDate:prev, total: arr + cob + ing - gas};
     prev = dt;
   }
   return out;
@@ -463,7 +479,7 @@ function paint(){
 function paintTotals(){
   const t = compute()[S.date];
   $('#tCob').textContent = money(t.cob); $('#tGas').textContent = money(t.gas); $('#tTot').textContent = money(t.total);
-  $('#sCob').textContent = money(t.cob); $('#sSum').textContent = money(t.arr + t.cob);
+  $('#sCob').textContent = money(t.cob); $('#sSum').textContent = money(t.arr + t.cob + t.ing);
   $('#sGas').textContent = money(t.gas); $('#sTot').textContent = money(t.total);
 }
 function activeClients(){ return S.config.clients.filter(c=>!c.off); }
@@ -488,11 +504,17 @@ function paintList(){
     return `<button class="row" data-cod="${c.cod}"><span class="cod">${c.cod}</span><span class="nm">${esc2(c.name)}${e.d?`<span class="det">${esc2(e.d)}</span>`:''}</span>${b}</button>`;
   }).join('') : '<div class="empty">no hay clientes con ese filtro</div>';
 }
+function lblToIso(l){ const [dd, mm] = l.split('/'); let y = Number(S.date.slice(0,4)); if (Number(mm) > Number(S.date.slice(5,7))) y--; return y + '-' + mm + '-' + dd; }
 function paintCuentas(){
   const d = curDay(), t = compute()[S.date];
-  $('#arrLbl').textContent = '(+) arrastre' + (t.prevDate ? ' del día ' + dm(t.prevDate) : '');
+  const lbl = d.arrLabel || (t.prevDate ? dm(t.prevDate) : '');
+  if (document.activeElement !== $('#arrDay')) $('#arrDay').value = lbl ? lblToIso(lbl) : '';
   if (document.activeElement !== $('#arr')) $('#arr').value = t.arr || '';
   $('#arrHint').innerHTML = t.manual ? `valor puesto a mano. <a href="#" id="arrAuto">usar el total del día anterior (${money(t.auto)})</a>` : (t.prevDate ? 'viene solo del total del día anterior.' : 'es el primer día guardado, así que parte en 0.');
+  if (d.arrLabel) $('#arrHint').innerHTML += ' la fecha del arrastre está puesta a mano. <a href="#" id="lblAuto">usar la fecha automática</a>';
+  const ig = d.ingresos || [];
+  $('#iList').innerHTML = ig.map((x,i)=>`<div class="line"><span style="width:22px;color:var(--mut)">(+)</span><input class="d" data-ii="${i}" data-k="d" value="${esc2(x.d)}" placeholder="detalle"><input class="m" data-ii="${i}" data-k="m" inputmode="decimal" value="${x.m ?? ''}" placeholder="0"><button class="btn s x" data-idel="${i}" aria-label="quitar">✕</button></div>`).join('');
+  $('#iAdd').style.display = ig.length >= 2 ? 'none' : '';
   const g = d.gastos || [];
   $('#gList').innerHTML = g.map((x,i)=>`<div class="line"><span style="width:18px;color:var(--mut)">${i+1}.</span><input class="d" data-gi="${i}" data-k="d" value="${esc2(x.d)}" placeholder="detalle"><input class="m" data-gi="${i}" data-k="m" inputmode="decimal" value="${x.m ?? ''}" placeholder="0"><button class="btn s x" data-gdel="${i}" aria-label="quitar">✕</button></div>`).join('') || '<p class="hint">sin gastos ni entregas todavía.</p>';
   $('#gAdd').style.display = g.length >= 13 ? 'none' : '';
@@ -579,7 +601,18 @@ $('#sheet').addEventListener('input', e=>{
 /* solucionando */
 $('#arr').addEventListener('input', e=>{ const d=curDay(true), v=parseMoney(e.target.value); if (e.target.value.trim()==='') delete d.arr; else if (v!==undefined) d.arr=v; saveDay(); paintTotals(); paintHist(); });
 $('#arr').addEventListener('blur', ()=>paintCuentas());
-$('#arrHint').addEventListener('click', e=>{ if (e.target.id==='arrAuto'){ e.preventDefault(); delete curDay(true).arr; saveDay(); paint(); } });
+$('#arrHint').addEventListener('click', e=>{
+  if (e.target.id==='arrAuto'){ e.preventDefault(); delete curDay(true).arr; saveDay(); paint(); }
+  if (e.target.id==='lblAuto'){ e.preventDefault(); delete curDay(true).arrLabel; saveDay(); paint(); }
+});
+$('#arrDay').addEventListener('change', e=>{ const d = curDay(true); if (e.target.value) d.arrLabel = dm(e.target.value); else delete d.arrLabel; saveDay(); paintCuentas(); });
+$('#iAdd').addEventListener('click', ()=>{ const d=curDay(true); d.ingresos=d.ingresos||[]; if (d.ingresos.length<2){ d.ingresos.push({d:'',m:undefined}); saveDay(); paintCuentas(); } });
+$('#iList').addEventListener('input', e=>{
+  const i = e.target.dataset.ii; if (i===undefined) return; const g = curDay(true).ingresos[i];
+  if (e.target.dataset.k==='d') g.d = e.target.value.replace(/^\s*\(\+\)\s*/, ''); else { const v=parseMoney(e.target.value); if (v===undefined) delete g.m; else g.m=v; }
+  saveDay(); paintTotals(); paintHist();
+});
+$('#iList').addEventListener('click', e=>{ const b=e.target.closest('[data-idel]'); if(!b) return; curDay(true).ingresos.splice(Number(b.dataset.idel),1); saveDay(); paintTotals(); paintCuentas(); paintHist(); });
 $('#gAdd').addEventListener('click', ()=>{ const d=curDay(true); d.gastos=d.gastos||[]; if (d.gastos.length<13){ d.gastos.push({d:'',m:undefined}); saveDay(); paintCuentas(); } });
 $('#gList').addEventListener('input', e=>{
   const i = e.target.dataset.gi; if (i===undefined) return; const g = curDay(true).gastos[i];
@@ -613,7 +646,7 @@ let tt; function toast(m){ const t=$('#toast'); t.textContent=m; t.style.display
 async function download(dt){
   dt = dt || S.date;
   const d = Object.assign({date:dt, cl:{}, gastos:[], pedidos:'', sugerencias:''}, S.days[dt] || {});
-  const T = compute()[dt]; d.arr = T.arr; d.arrLabel = T.prevDate ? dm(T.prevDate) : (d.arrLabel || '');
+  const T = compute()[dt]; d.arr = T.arr; d.arrLabel = d.arrLabel || (T.prevDate ? dm(T.prevDate) : '');
   let bytes;
   try{ bytes = buildXlsx(TPL, d, S.config.clients, S.config.collector); }catch(e){ return toast('no se pudo armar el excel'); }
   const first = (S.config.collector||'COBRADOR').trim().split(/\s+/)[0].toUpperCase();
