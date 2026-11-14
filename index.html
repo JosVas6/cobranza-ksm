@@ -33,8 +33,8 @@ h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
 .tot small{display:block;color:var(--mut);font-size:11px}
 .tot b{font-size:17px;font-variant-numeric:tabular-nums}
 .tot .big{background:#fff;border-color:#fff;color:#000}.tot .big small{color:#4a4a4a}
-nav{display:flex;gap:4px;margin:10px 0 8px;overflow-x:auto}
-nav button{flex:1;white-space:nowrap;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 6px;font-weight:600;font-size:13px;color:var(--mut)}
+nav{display:flex;gap:3px;margin:10px 0 8px;overflow-x:auto}
+nav button{flex:1;white-space:nowrap;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 3px;font-weight:600;font-size:12.5px;color:var(--mut)}
 nav button.on{background:var(--acc2);color:var(--acc);border-color:var(--acc)}
 .view{display:none}.view.on{display:block}
 .search{width:100%;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;margin-bottom:8px}
@@ -79,6 +79,12 @@ textarea{width:100%;min-height:96px;border:1px solid var(--line);background:var(
 .sheet .det-in{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px}
 .nav2{display:grid;grid-template-columns:1fr 2fr 1fr;gap:8px;margin-top:12px}
 .empty{text-align:center;color:var(--mut);padding:26px 0}
+a.btn{text-decoration:none;display:inline-block;text-align:center}
+.msg .mt,.ybox .mt{font-weight:600;overflow-wrap:anywhere;margin-bottom:8px}
+.ma{display:flex;gap:6px;flex-wrap:wrap}
+.ybox{border:1px dashed #5a5a5a;border-radius:10px;padding:10px;margin-top:8px}
+.ybox small{display:block;color:var(--mut);font-size:11px;margin-bottom:4px}
+.ybox .mt{font-size:13.5px}
 .toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:99px;font-size:13px;z-index:30;display:none;max-width:90vw}
 .login{position:fixed;inset:0;background:#000;z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
 .login.on{display:flex}
@@ -111,6 +117,7 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
     <button data-v="v2">solucionando</button>
     <button data-v="v3">historial</button>
     <button data-v="v4">clientes</button>
+    <button data-v="v5">mensajes</button>
   </nav>
 
   <section class="view on" id="v1">
@@ -150,6 +157,15 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
       <button class="btn s" id="cAdd">+ agregar cliente</button> <button class="btn s" data-import="clients">importar desde excel</button>
       <p class="hint">la planilla tiene lugar para 104 clientes. los cambios de nombre también se ven en los excel de días anteriores. un cliente que ya no se cobra se oculta del recorrido, pero su código se conserva.</p>
     </div>
+  </section>
+
+  <section class="view" id="v5">
+    <div class="card">
+      <h3>mensajes yp</h3>
+      <div class="line"><input class="d" id="ypTxt" placeholder="QUEDO EN YAPEAR:" autocomplete="off"></div>
+      <p class="hint">este es el texto que va antes del nombre. la app crea un mensaje por cada cliente que tenga yp en el día elegido. los mensajes son solo de la app: no salen en el excel.</p>
+    </div>
+    <div id="ypList"></div>
   </section>
 </div>
 
@@ -451,7 +467,7 @@ async function loadAll(){
     sb.from('dias').select('fecha,data').order('fecha', {ascending:true}).limit(5000)
   ]);
   if (c.error || d.error) throw (c.error || d.error);
-  if (c.data && c.data.data && Array.isArray(c.data.data.clients)) S.config = {collector:c.data.data.collector||'', clients:c.data.data.clients};
+  if (c.data && c.data.data && Array.isArray(c.data.data.clients)) S.config = Object.assign({}, c.data.data, {collector:c.data.data.collector||'', clients:c.data.data.clients});
   const days = {}; (d.data||[]).forEach(r => days[r.fecha] = r.data);
   for (const id of P.dirty){
     if (id==='config') S.config = localCfg;
@@ -477,7 +493,7 @@ async function boot(){
 function paint(){
   $('#date').value = S.date;
   if (document.activeElement !== $('#who')) $('#who').value = S.config.collector || '';
-  paintTotals(); paintList(); paintCuentas(); paintHist(); paintClients();
+  paintTotals(); paintList(); paintCuentas(); paintHist(); paintClients(); paintYP();
 }
 function paintTotals(){
   const t = compute()[S.date];
@@ -487,7 +503,35 @@ function paintTotals(){
 }
 function activeClients(){ return S.config.clients.filter(c=>!c.off); }
 function stateOf(cod){ const e = curDay().cl[cod]; if (!e || (e.c===undefined && !e.d)) return 'pend'; if (typeof e.c==='number') return e.c>0?'pay':'zero'; if (e.c==='**') return 'star'; return 'pend'; }
+/* ---------- mensajes yp ---------- */
+const YP_DEF = 'QUEDO EN YAPEAR:';
+const isYP = d => /(^|[^A-Za-zÁÉÍÓÚÑáéíóúñ])YP($|[^A-Za-zÁÉÍÓÚÑáéíóúñ])/i.test(d || '');
+const ypMsg = c => ((S.config.yp || YP_DEF).trim() + ' ' + String(c.name || '').trim()).trim();
+const waUrl = t => 'https://wa.me/?text=' + encodeURIComponent(t);
+function ypClients(){ const d = curDay(); return S.config.clients.filter(c => isYP((d.cl[c.cod] || {}).d)); }
+function paintYP(){
+  if (document.activeElement !== $('#ypTxt')) $('#ypTxt').value = S.config.yp || YP_DEF;
+  const cs = ypClients(), all = cs.map(ypMsg).join('\n');
+  $('nav button[data-v=v5]').textContent = 'mensajes' + (cs.length ? ' ' + cs.length : '');
+  $('#ypList').innerHTML = cs.length
+    ? `<div class="card"><div class="day"><div class="info"><b>${cs.length} ${cs.length===1?'mensaje':'mensajes'}</b><span>${dlong(S.date)}</span></div><div class="ma"><button class="btn s p" data-ycopy="all">copiar todos</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(all)}">whatsapp</a></div></div></div>`
+      + cs.map(c=>`<div class="card msg"><div class="mt">${esc2(ypMsg(c))}</div><div class="ma"><button class="btn s" data-ycopy="${esc2(c.cod)}">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(ypMsg(c))}">whatsapp</a></div></div>`).join('')
+    : '<div class="empty">no hay clientes con yp en este día.<br>cuando marques yp a un cliente, su mensaje aparece aquí.</div>';
+}
+function sheetYP(){
+  const box = $('#shY'); if (!box || !S.cur) return;
+  const c = S.config.clients.find(x=>x.cod===S.cur), e = curDay().cl[S.cur] || {};
+  box.innerHTML = c && isYP(e.d) ? `<div class="ybox"><small>mensaje creado</small><div class="mt">${esc2(ypMsg(c))}</div><div class="ma"><button class="btn s" id="shYc">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(ypMsg(c))}">whatsapp</a></div></div>` : '';
+}
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); toast('mensaje copiado'); }
+  catch(e){
+    try{ const a = document.createElement('textarea'); a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'; document.body.appendChild(a); a.select(); const ok = document.execCommand('copy'); a.remove(); toast(ok ? 'mensaje copiado' : 'no se pudo copiar'); }
+    catch(e2){ toast('no se pudo copiar'); }
+  }
+}
 function paintList(){
+  paintYP();
   const d = curDay(), cs = activeClients();
   if (!cs.length){ $('#flt').innerHTML=''; $('#list').innerHTML='<div class="card"><h3>primer uso</h3><p style="margin:0 0 10px">todavía no hay clientes. carga tu planilla (puede ser la que está en blanco) y la app toma los nombres y códigos.</p><button class="btn p" data-import="clients">cargar clientes desde mi planilla</button></div>'; return; }
   const cnt = {all:cs.length, pend:0, pay:0, nopay:0};
@@ -549,8 +593,9 @@ function openSheet(cod){
    <div class="quick"><button class="btn" data-q="0">0 no pagó</button><button class="btn" data-q="**">**</button></div>
    <div class="chips" id="shChips">${CHIPS.map(x=>`<button data-ch="${esc2(x)}" class="${e.d===x?'on':''}">${esc2(x)}</button>`).join('')}</div>
    <input class="det-in" id="shD" placeholder="detalle (ej: 230 YP)" value="${esc2(e.d||'')}">
+   <div id="shY"></div>
    <div class="nav2"><button class="btn" id="shPrev" ${i<=0?'disabled':''}>‹ anterior</button><button class="btn p" id="shNext">${i<list.length-1?'guardar y siguiente ›':'listo'}</button><button class="btn x" id="shClr">limpiar</button></div>`;
-  $('#ov').classList.add('on');
+  $('#ov').classList.add('on'); sheetYP();
 }
 function setEntry(cod, patch){
   const d = curDay(true), e = Object.assign({}, d.cl[cod] || {}, patch);
@@ -564,6 +609,7 @@ function sheetSync(){
   $('#shD').value = e.d || '';
   $('#shChips').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ch===e.d));
   $('#shC').value = e.c===undefined || e.c==='**' ? '' : e.c;
+  sheetYP();
 }
 function closeSheet(){ $('#ov').classList.remove('on'); S.cur = null; }
 function step(dir){
@@ -577,7 +623,14 @@ $('#tabs').addEventListener('click', e=>{
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on', x===b));
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id===b.dataset.v));
-  $('.bar').style.display = b.dataset.v==='v3' || b.dataset.v==='v4' ? 'none' : '';
+  $('.bar').style.display = b.dataset.v==='v3' || b.dataset.v==='v4' || b.dataset.v==='v5' ? 'none' : '';
+});
+$('#ypTxt').addEventListener('input', e=>{ const v = e.target.value.trim(); if (v) S.config.yp = v; else delete S.config.yp; saveCfg(); paintYP(); sheetYP(); });
+$('#ypList').addEventListener('click', e=>{
+  const b = e.target.closest('[data-ycopy]'); if (!b) return;
+  const cs = ypClients();
+  if (b.dataset.ycopy === 'all') return copyText(cs.map(ypMsg).join('\n'));
+  const c = cs.find(x=>x.cod===b.dataset.ycopy); if (c) copyText(ypMsg(c));
 });
 $('#date').addEventListener('change', e=>{ if (e.target.value){ S.date = e.target.value; paint(); } });
 $('#who').addEventListener('input', e=>{ S.config.collector = e.target.value; saveCfg(); });
@@ -588,6 +641,7 @@ $('#ov').addEventListener('click', e=>{ if (e.target.id==='ov') closeSheet(); })
 $('#sheet').addEventListener('click', e=>{
   const t = e.target.closest('button'); if (!t) return;
   if (t.id==='shClose') return closeSheet();
+  if (t.id==='shYc'){ const c = S.config.clients.find(x=>x.cod===S.cur); return c && copyText(ypMsg(c)); }
   if (t.id==='shNext') return step(1);
   if (t.id==='shPrev') return step(-1);
   if (t.id==='shClr'){ const d = curDay(true); delete d.cl[S.cur]; saveDay(); paintTotals(); paintList(); paintCuentas(); paintHist(); return sheetSync(); }
@@ -596,7 +650,7 @@ $('#sheet').addEventListener('click', e=>{
 });
 $('#sheet').addEventListener('input', e=>{
   if (e.target.id==='shC'){ const v = parseMoney(e.target.value); setEntry(S.cur, {c: v}); }
-  if (e.target.id==='shD'){ setEntry(S.cur, {d: e.target.value}); $('#shChips').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ch===e.target.value)); }
+  if (e.target.id==='shD'){ setEntry(S.cur, {d: e.target.value}); $('#shChips').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ch===e.target.value)); sheetYP(); }
 });
 /* solucionando */
 $('#arr').addEventListener('input', e=>{ const d=curDay(true), v=parseMoney(e.target.value); if (e.target.value.trim()==='') delete d.arr; else if (v!==undefined) d.arr=v; saveDay(); paintTotals(); paintHist(); });
