@@ -7,8 +7,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="cobranza">
-<link rel="apple-touch-icon" href="icon.png">
-<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="logo.png">
+<link rel="icon" href="logo.png">
 <meta name="theme-color" content="#000000">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>cobranza k.s.m.</title>
@@ -79,7 +79,6 @@ textarea{width:100%;min-height:96px;border:1px solid var(--line);background:var(
 .sheet .det-in{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px}
 .nav2{display:grid;grid-template-columns:1fr 2fr 1fr;gap:8px;margin-top:12px}
 .empty{text-align:center;color:var(--mut);padding:26px 0}
-.pdate{display:flex;gap:8px;align-items:center;margin-bottom:8px}.pdate input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px}
 .toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:99px;font-size:13px;z-index:30;display:none;max-width:90vw}
 .login{position:fixed;inset:0;background:#000;z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
 .login.on{display:flex}
@@ -88,14 +87,18 @@ textarea{width:100%;min-height:96px;border:1px solid var(--line);background:var(
 .login input{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px;font-size:16px}
 .lerr{min-height:1.2em;color:var(--ink);font-weight:600}
 body.out .wrap,body.out .bar{display:none}
-.top .r{display:flex;gap:6px;align-items:center}
+.top .r{display:flex;gap:6px;align-items:center;min-width:0}
+.top h1{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.lg{width:28px;height:28px;border-radius:50%;flex:none}
+#st{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.login .lgb{width:132px;height:132px;border-radius:50%;align-self:center;margin-bottom:6px}
 button.chip{cursor:pointer;font:inherit;font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="top"><h1>cobranza k.s.m.</h1><div class="r"><span class="chip" id="st">conectando…</span><button class="chip" id="out" type="button">salir</button></div></div>
+    <div class="top"><h1><img class="lg" src="logo.png" alt="">cobranza k.s.m.</h1><div class="r"><span class="chip" id="st">conectando…</span><button class="chip" id="out" type="button">salir</button></div></div>
     <div class="ctrl"><input type="date" id="date" aria-label="fecha"><input type="text" id="who" aria-label="cobrador" placeholder="cobrador"></div>
     <div class="tot">
       <div><small>cobranza del día</small><b id="tCob">S/ 0</b></div>
@@ -153,7 +156,7 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
 <div class="bar"><div class="in"><button class="btn p" id="dl">descargar excel de este día</button></div></div>
 
 <input type="file" id="fx" accept=".xlsx" hidden>
-<div class="login" id="login"><form id="lf"><h2>cobranza k.s.m.</h2><p>inicia sesión para ver tus datos</p><input id="lem" type="email" autocomplete="username" placeholder="correo" required><input id="lpw" type="password" autocomplete="current-password" placeholder="contraseña" required><button class="btn p" id="lbt" type="submit">entrar</button><p class="lerr" id="lerr"></p></form></div>
+<div class="login" id="login"><form id="lf"><img class="lgb" src="logo.png" alt="ss inversiones"><h2>cobranza k.s.m.</h2><p>inicia sesión para ver tus datos</p><input id="lem" type="email" autocomplete="username" placeholder="correo" required><input id="lpw" type="password" autocomplete="current-password" placeholder="contraseña" required><button class="btn p" id="lbt" type="submit">entrar</button><p class="lerr" id="lerr"></p></form></div>
 <div class="ov" id="ov"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 
@@ -535,18 +538,16 @@ function paintClients(){
 }
 
 /* ---------- editor de cliente ---------- */
-const CHIPS = ['YP','E.','VISITAR','AVISA','OBS','NO DAR','(T)PEDIDO'];
+const CHIPS = ['YP','E.','VISITAR','AVISA','OBS','NO DAR','(T)PEDIDO','(V-S)PEDIDO'];
 function openSheet(cod){
   S.cur = cod; const c = S.config.clients.find(x=>x.cod===cod), e = curDay().cl[cod] || {};
   const list = activeClients(), i = list.findIndex(x=>x.cod===cod);
   const cv = e.c === undefined ? '' : e.c;
-  const pm = /^P\.(\d\d)\/(\d\d)$/.exec(e.d||'');
   $('#sheet').innerHTML = `
    <div class="hd"><div><b>${cod} · ${esc2(c.name)}</b><small>${dlong(S.date)}</small></div><button class="btn s" id="shClose">cerrar</button></div>
    <input class="big-in" id="shC" inputmode="decimal" placeholder="monto en S/" value="${cv==='**'?'':cv}">
-   <div class="quick"><button class="btn" data-q="0">0 · visité, no pagó</button><button class="btn" data-q="**">** · no estaba</button></div>
+   <div class="quick"><button class="btn" data-q="0">0 no pagó</button><button class="btn" data-q="**">**</button></div>
    <div class="chips" id="shChips">${CHIPS.map(x=>`<button data-ch="${esc2(x)}" class="${e.d===x?'on':''}">${esc2(x)}</button>`).join('')}</div>
-   <div class="pdate"><span>promete pagar el</span><input type="date" id="shP" value="${pm ? S.date.slice(0,4)+'-'+pm[2]+'-'+pm[1] : ''}"></div>
    <input class="det-in" id="shD" placeholder="detalle (ej: 230 YP)" value="${esc2(e.d||'')}">
    <div class="nav2"><button class="btn" id="shPrev" ${i<=0?'disabled':''}>‹ anterior</button><button class="btn p" id="shNext">${i<list.length-1?'guardar y siguiente ›':'listo'}</button><button class="btn x" id="shClr">limpiar</button></div>`;
   $('#ov').classList.add('on');
@@ -591,12 +592,11 @@ $('#sheet').addEventListener('click', e=>{
   if (t.id==='shPrev') return step(-1);
   if (t.id==='shClr'){ const d = curDay(true); delete d.cl[S.cur]; saveDay(); paintTotals(); paintList(); paintCuentas(); paintHist(); return sheetSync(); }
   if (t.dataset.q !== undefined){ setEntry(S.cur, {c: t.dataset.q==='**' ? '**' : Number(t.dataset.q)}); return sheetSync(); }
-  if (t.dataset.ch !== undefined){ const e2 = curDay().cl[S.cur] || {}; setEntry(S.cur, {d: e2.d===t.dataset.ch ? '' : t.dataset.ch}); $('#shP').value=''; return sheetSync(); }
+  if (t.dataset.ch !== undefined){ const e2 = curDay().cl[S.cur] || {}; setEntry(S.cur, {d: e2.d===t.dataset.ch ? '' : t.dataset.ch}); return sheetSync(); }
 });
 $('#sheet').addEventListener('input', e=>{
   if (e.target.id==='shC'){ const v = parseMoney(e.target.value); setEntry(S.cur, {c: v}); }
   if (e.target.id==='shD'){ setEntry(S.cur, {d: e.target.value}); $('#shChips').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ch===e.target.value)); }
-  if (e.target.id==='shP' && e.target.value){ const v='P.'+e.target.value.slice(8,10)+'/'+e.target.value.slice(5,7); setEntry(S.cur,{d:v}); $('#shD').value=v; $('#shChips').querySelectorAll('button').forEach(b=>b.classList.remove('on')); }
 });
 /* solucionando */
 $('#arr').addEventListener('input', e=>{ const d=curDay(true), v=parseMoney(e.target.value); if (e.target.value.trim()==='') delete d.arr; else if (v!==undefined) d.arr=v; saveDay(); paintTotals(); paintHist(); });
