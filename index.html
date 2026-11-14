@@ -84,7 +84,10 @@ a.btn{text-decoration:none;display:inline-block;text-align:center}
 .ma{display:flex;gap:6px;flex-wrap:wrap}
 .ybox{border:1px dashed #5a5a5a;border-radius:10px;padding:10px;margin-top:8px}
 .ybox small{display:block;color:var(--mut);font-size:11px;margin-bottom:4px}
-.ybox .mt{font-size:13.5px}
+.ybox .mt{font-size:13.5px;margin-bottom:0}
+.yn{margin-bottom:8px}.yn small{display:block;color:var(--mut);font-size:11.5px;margin-bottom:3px}
+.yn input{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px}
+.msg .mt{font-size:16px;line-height:1.45}
 .toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:99px;font-size:13px;z-index:30;display:none;max-width:90vw}
 .login{position:fixed;inset:0;background:#000;z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
 .login.on{display:flex}
@@ -160,12 +163,13 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
   </section>
 
   <section class="view" id="v5">
+    <div id="ypOut"></div>
+    <div id="ypNames"></div>
     <div class="card">
-      <h3>mensajes yp</h3>
-      <div class="line"><input class="d" id="ypTxt" placeholder="QUEDO EN YAPEAR:" autocomplete="off"></div>
-      <p class="hint">este es el texto que va antes del nombre. la app crea un mensaje por cada cliente que tenga yp en el día elegido. los mensajes son solo de la app: no salen en el excel.</p>
+      <h3>texto del mensaje</h3>
+      <div class="line"><input class="d" id="ypTxt" placeholder="quedaron en yapear:" autocomplete="off"></div>
+      <p class="hint">es lo que va antes de los nombres. si lo dejas vacío, la app pone "quedaron en yapear:" (o "quedó en yapear:" cuando es una sola persona). este mensaje es solo de la app: no sale en el excel.</p>
     </div>
-    <div id="ypList"></div>
   </section>
 </div>
 
@@ -503,25 +507,44 @@ function paintTotals(){
 }
 function activeClients(){ return S.config.clients.filter(c=>!c.off); }
 function stateOf(cod){ const e = curDay().cl[cod]; if (!e || (e.c===undefined && !e.d)) return 'pend'; if (typeof e.c==='number') return e.c>0?'pay':'zero'; if (e.c==='**') return 'star'; return 'pend'; }
-/* ---------- mensajes yp ---------- */
-const YP_DEF = 'QUEDO EN YAPEAR:';
+/* ---------- mensaje yp (un solo mensaje por día, con nombres cortos) ---------- */
+const YP_DEF = 'quedaron en yapear:', YP_ONE = 'quedó en yapear:';
 const isYP = d => /(^|[^A-Za-zÁÉÍÓÚÑáéíóúñ])YP($|[^A-Za-zÁÉÍÓÚÑáéíóúñ])/i.test(d || '');
-const ypMsg = c => ((S.config.yp || YP_DEF).trim() + ' ' + String(c.name || '').trim()).trim();
 const waUrl = t => 'https://wa.me/?text=' + encodeURIComponent(t);
+const fold = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+const ACC = {MARIA:'María', JOSE:'José', JESUS:'Jesús', ANGEL:'Ángel', ANGELICA:'Angélica', MONICA:'Mónica', VERONICA:'Verónica', RAMON:'Ramón', MARTIN:'Martín', ANDRES:'Andrés', INES:'Inés', RAUL:'Raúl', HECTOR:'Héctor', VICTOR:'Víctor', OSCAR:'Óscar', SOFIA:'Sofía', LUCIA:'Lucía', ROCIO:'Rocío', JULIAN:'Julián', ADRIAN:'Adrián', BELEN:'Belén', CESAR:'César', NESTOR:'Néstor', RUBEN:'Rubén', SIMON:'Simón', TOMAS:'Tomás', AGUSTIN:'Agustín', JOAQUIN:'Joaquín', SEBASTIAN:'Sebastián', FABIAN:'Fabián', GERMAN:'Germán', ELIAS:'Elías', MATIAS:'Matías', BARBARA:'Bárbara', FELIX:'Félix', ROSALIA:'Rosalía', NOEMI:'Noemí', JOSUE:'Josué', MOISES:'Moisés', VALENTIN:'Valentín', CRISTOBAL:'Cristóbal'};
+const cap = w => ACC[fold(w)] || (w.charAt(0).toLocaleUpperCase('es') + w.slice(1).toLocaleLowerCase('es'));
+const nameToks = n => String(n || '').replace(/\([^)]*\)/g, ' ').split(/\s+/).filter(Boolean);
+const isIni = t => /^[A-Za-zÁÉÍÓÚÑáéíóúñ]\.?$/.test(t);
+const persKey = n => nameToks(n).slice(0, 3).map(fold).join(' ');
+/* nombre corto automático: el primer nombre; si otro cliente se llama igual, se le suma el segundo nombre (o el apellido cuando el segundo es una inicial) */
+function autoShort(c){
+  const t = nameToks(c.name); if (!t.length) return String(c.name || '').trim();
+  const k = fold(t[0]);
+  const same = new Set(S.config.clients.filter(x => { const tt = nameToks(x.name); return tt.length && fold(tt[0]) === k; }).map(x => persKey(x.name)));
+  if (same.size <= 1) return cap(t[0]);
+  const nx = t.slice(1).find(x => !isIni(x));
+  return nx ? cap(t[0]) + ' ' + cap(nx) : cap(t[0]);
+}
+const shortOf = c => (c.short && String(c.short).trim()) || autoShort(c);
 function ypClients(){ const d = curDay(); return S.config.clients.filter(c => isYP((d.cl[c.cod] || {}).d)); }
+function ypNames(){ const seen = new Set(), out = []; ypClients().forEach(c => { const n = shortOf(c), k = fold(n); if (!seen.has(k)){ seen.add(k); out.push(n); } }); return out; }
+function ypText(){ const n = ypNames(); if (!n.length) return ''; const pre = String(S.config.ypMsg || (n.length === 1 ? YP_ONE : YP_DEF)).trim(); return (pre + ' ' + n.join(', ')).trim(); }
 function paintYP(){
-  if (document.activeElement !== $('#ypTxt')) $('#ypTxt').value = S.config.yp || YP_DEF;
-  const cs = ypClients(), all = cs.map(ypMsg).join('\n');
-  $('nav button[data-v=v5]').textContent = 'mensajes' + (cs.length ? ' ' + cs.length : '');
-  $('#ypList').innerHTML = cs.length
-    ? `<div class="card"><div class="day"><div class="info"><b>${cs.length} ${cs.length===1?'mensaje':'mensajes'}</b><span>${dlong(S.date)}</span></div><div class="ma"><button class="btn s p" data-ycopy="all">copiar todos</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(all)}">whatsapp</a></div></div></div>`
-      + cs.map(c=>`<div class="card msg"><div class="mt">${esc2(ypMsg(c))}</div><div class="ma"><button class="btn s" data-ycopy="${esc2(c.cod)}">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(ypMsg(c))}">whatsapp</a></div></div>`).join('')
-    : '<div class="empty">no hay clientes con yp en este día.<br>cuando marques yp a un cliente, su mensaje aparece aquí.</div>';
+  if (document.activeElement !== $('#ypTxt')) $('#ypTxt').value = S.config.ypMsg || '';
+  const cs = ypClients(), names = ypNames(), txt = ypText();
+  $('nav button[data-v=v5]').textContent = 'mensajes' + (names.length ? ' ' + names.length : '');
+  $('#ypOut').innerHTML = txt
+    ? `<div class="card msg"><h3>mensaje del día · ${dlong(S.date)}</h3><div class="mt">${esc2(txt)}</div><div class="ma"><button class="btn s p" data-ycopy="1">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(txt)}">whatsapp</a></div></div>`
+    : '<div class="empty">no hay clientes con yp en este día.<br>cuando marques yp a un cliente, su nombre se suma al mensaje.</div>';
+  if (!$('#ypNames').contains(document.activeElement)) $('#ypNames').innerHTML = cs.length
+    ? '<div class="card"><h3>cómo sale cada nombre</h3>' + cs.map(c => `<div class="yn"><small>${esc2(c.cod)} · ${esc2(c.name)}</small><input data-ys="${esc2(c.cod)}" value="${esc2(shortOf(c))}" placeholder="${esc2(autoShort(c))}" autocomplete="off"></div>`).join('') + '<p class="hint">cambia aquí el nombre corto de un cliente. queda guardado para los próximos días.</p></div>'
+    : '';
 }
 function sheetYP(){
   const box = $('#shY'); if (!box || !S.cur) return;
   const c = S.config.clients.find(x=>x.cod===S.cur), e = curDay().cl[S.cur] || {};
-  box.innerHTML = c && isYP(e.d) ? `<div class="ybox"><small>mensaje creado</small><div class="mt">${esc2(ypMsg(c))}</div><div class="ma"><button class="btn s" id="shYc">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(ypMsg(c))}">whatsapp</a></div></div>` : '';
+  box.innerHTML = c && isYP(e.d) ? `<div class="ybox"><small>sumado al mensaje de yapear como</small><div class="mt">${esc2(shortOf(c))}</div></div>` : '';
 }
 async function copyText(t){
   try{ await navigator.clipboard.writeText(t); toast('mensaje copiado'); }
@@ -625,13 +648,15 @@ $('#tabs').addEventListener('click', e=>{
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id===b.dataset.v));
   $('.bar').style.display = b.dataset.v==='v3' || b.dataset.v==='v4' || b.dataset.v==='v5' ? 'none' : '';
 });
-$('#ypTxt').addEventListener('input', e=>{ const v = e.target.value.trim(); if (v) S.config.yp = v; else delete S.config.yp; saveCfg(); paintYP(); sheetYP(); });
-$('#ypList').addEventListener('click', e=>{
-  const b = e.target.closest('[data-ycopy]'); if (!b) return;
-  const cs = ypClients();
-  if (b.dataset.ycopy === 'all') return copyText(cs.map(ypMsg).join('\n'));
-  const c = cs.find(x=>x.cod===b.dataset.ycopy); if (c) copyText(ypMsg(c));
+$('#ypTxt').addEventListener('input', e=>{ const v = e.target.value.trim(); if (v) S.config.ypMsg = v; else delete S.config.ypMsg; saveCfg(); paintYP(); });
+$('#ypOut').addEventListener('click', e=>{ if (e.target.closest('[data-ycopy]')) copyText(ypText()); });
+$('#ypNames').addEventListener('input', e=>{
+  const cod = e.target.dataset.ys; if (cod === undefined) return;
+  const c = S.config.clients.find(x=>x.cod===cod); if (!c) return;
+  const v = e.target.value.trim(); delete c.short; if (v && v !== autoShort(c)) c.short = v;
+  saveCfg(); paintYP();
 });
+$('#ypNames').addEventListener('focusout', ()=>setTimeout(paintYP, 0));
 $('#date').addEventListener('change', e=>{ if (e.target.value){ S.date = e.target.value; paint(); } });
 $('#who').addEventListener('input', e=>{ S.config.collector = e.target.value; saveCfg(); });
 $('#q').addEventListener('input', e=>{ S.q = e.target.value; paintList(); });
@@ -641,7 +666,6 @@ $('#ov').addEventListener('click', e=>{ if (e.target.id==='ov') closeSheet(); })
 $('#sheet').addEventListener('click', e=>{
   const t = e.target.closest('button'); if (!t) return;
   if (t.id==='shClose') return closeSheet();
-  if (t.id==='shYc'){ const c = S.config.clients.find(x=>x.cod===S.cur); return c && copyText(ypMsg(c)); }
   if (t.id==='shNext') return step(1);
   if (t.id==='shPrev') return step(-1);
   if (t.id==='shClr'){ const d = curDay(true); delete d.cl[S.cur]; saveDay(); paintTotals(); paintList(); paintCuentas(); paintHist(); return sheetSync(); }
