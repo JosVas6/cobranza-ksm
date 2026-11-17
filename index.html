@@ -602,30 +602,43 @@ function addWork(iso, n){ let d = iso, k = 0; while (k < n){ d = isoAdd(d, 1); i
 function workBetween(a, b){ let d = a, k = 0; while (d < b){ d = isoAdd(d, 1); if (!isSun(d)) k++; } return k; }
 const isT = d => /\(\s*T\s*\)\s*PEDIDO/i.test(d || '');
 const isE = d => /^\s*E\./i.test(d || '') || isT(d);
-function endFromE(det, ref, start){
-  const m = String(det || '').match(/^\s*E\.\s*(\d{1,2})\s*\/\s*(\d{1,2})/i);
-  if (!m) return ref;
-  let y = Number(ref.slice(0,4)); const mm = m[2].padStart(2,'0'), dd = m[1].padStart(2,'0');
-  let iso = y + '-' + mm + '-' + dd; if (iso < start) iso = (y + 1) + '-' + mm + '-' + dd;
+/* E.dd/mm = día en que el cliente empieza a pagar · (T)PEDIDO = terminó el crédito */
+function eDate(det, near){
+  const m = String(det || '').match(/^\s*E\.\s*(\d{1,2})\s*\/\s*(\d{1,2})/i); if (!m) return null;
+  const y = Number(near.slice(0,4)), mm = m[2].padStart(2,'0'), dd = m[1].padStart(2,'0');
+  let iso = y + '-' + mm + '-' + dd; if (iso < isoAdd(near, -60)) iso = (y + 1) + '-' + mm + '-' + dd;
   return iso;
 }
+function nextWork(iso){ let d = isoAdd(iso, 1); while (isSun(d)) d = isoAdd(d, 1); return d; }
 function creditSummary(cod, ref){
   const cr = allCredits().filter(c => c.cod === cod && c.date <= ref).pop(); if (!cr) return null;
-  const det = (S.days[ref] && S.days[ref].cl[cod] || {}).d;
-  const end = endFromE(det, ref, cr.date);
+  const days = Object.keys(S.days).filter(dt => dt >= cr.date && dt <= ref).sort();
+  let start = null, startSet = null, end = ref, closed = false;
+  for (const dt of days){
+    const det = (S.days[dt].cl[cod] || {}).d;
+    if (isT(det)){ end = dt; closed = true; break; }
+    const ed = eDate(det, dt); if (ed){ start = ed; startSet = dt; }
+  }
+  if (!start) start = nextWork(cr.date);
+  if (isSun(start)) start = nextWork(start);
   let paid = 0, n = 0;
-  Object.keys(S.days).sort().forEach(dt => { if (dt >= cr.date && dt <= end){ const v = (S.days[dt].cl[cod] || {}).c; if (typeof v === 'number'){ paid += v; if (v > 0) n++; } } });
-  const total = Math.round(cr.monto * (1 + cr.pct / 100) * 100) / 100;
-  const cuota = Math.round(total / cr.days * 100) / 100, transc = Math.min(workBetween(cr.date, end), cr.days);
+  days.forEach(dt => { if (dt <= end){ const v = (S.days[dt].cl[cod] || {}).c; if (typeof v === 'number'){ paid += v; if (v > 0) n++; } } });
+  const total = Math.round(cr.monto * (1 + cr.pct / 100) * 100) / 100, cuota = Math.round(total / cr.days * 100) / 100;
+  const transc = end < start ? 0 : Math.min(workBetween(isoAdd(start, -1), end), cr.days);
   const deberia = Math.min(total, Math.round(cuota * transc * 100) / 100);
-  return Object.assign({}, cr, {end, paid, n, total, cuota, vence: addWork(cr.date, cr.days), transc, deberia, atraso: Math.round((deberia - paid) * 100) / 100, falta: Math.round((total - paid) * 100) / 100});
+  return Object.assign({}, cr, {start, startSet, end, closed, paid, n, total, cuota, vence: cr.days > 1 ? addWork(start, cr.days - 1) : start, transc, deberia,
+    atraso: Math.round((deberia - paid) * 100) / 100, falta: Math.round((total - paid) * 100) / 100});
 }
 function sheetE(){
   const box = $('#shE'); if (!box || !S.cur) return;
   const e = curDay().cl[S.cur] || {};
-  if (!isE(e.d)) { box.innerHTML = ''; return; }
   const r = creditSummary(S.cur, S.date);
-  box.innerHTML = r ? `<div class="ybox cr"><small>crédito del ${dm(r.date)} al ${dm(r.end)}${isT(e.d) ? ' · terminado' : ''}</small>
+  const closedBefore = r && r.closed && r.end < S.date;
+  if (!r || closedBefore){
+    box.innerHTML = isE(e.d) ? `<div class="ybox cr"><small>crédito</small>no encontré la entrega de este cliente en "gastos y entregas". escríbela así: nombre (8 30), con el monto entregado.</div>` : '';
+    return;
+  }
+  box.innerHTML = `<div class="ybox cr"><small>crédito entregado el ${dm(r.date)} · paga desde el ${dm(r.start)}${r.startSet ? '' : ' (sin E., la app toma el día siguiente)'}${r.closed ? ' · terminado el ' + dm(r.end) : ''}</small>
     <div class="k"><span>entregado</span><b>${money(r.monto)}</b></div>
     <div class="k"><span>${r.pct}% · ${r.days} días de cobro (vence ${dm(r.vence)})</span><b>${money(r.total)}</b></div>
     <div class="k"><span>cuota diaria</span><b>${money(r.cuota)}</b></div>
@@ -633,8 +646,7 @@ function sheetE(){
     <div class="k"><span>debería llevar</span><b>${money(r.deberia)}</b></div>
     <div class="k"><span>pagado (${r.n} pagos)</span><b>${money(r.paid)}</b></div>
     ${r.atraso > 0 ? `<div class="k"><span>atrasado</span><b>${money(r.atraso)}</b></div>` : ''}
-    <div class="k t"><span>${r.falta > 0 ? 'falta' : r.falta < 0 ? 'pagó de más' : 'cancelado'}</span><b>${money(Math.abs(r.falta))}</b></div></div>`
-    : `<div class="ybox cr"><small>crédito</small>no encontré la entrega de este cliente en "gastos y entregas". escríbela así: nombre (8 30), con el monto entregado.</div>`;
+    <div class="k t"><span>${r.falta > 0 ? 'falta' : r.falta < 0 ? 'pagó de más' : 'cancelado'}</span><b>${money(Math.abs(r.falta))}</b></div></div>`;
 }
 function credHint(i){
   const g = (curDay().gastos || [])[i]; const p = g && parseCred(g.d); if (!p) return '';
