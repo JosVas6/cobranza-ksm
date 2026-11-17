@@ -173,9 +173,10 @@ button.chip{cursor:pointer;font:inherit;font-size:12px}
     <div id="ypOut"></div>
     <div id="ypNames"></div>
     <div class="card">
-      <h3>texto del mensaje</h3>
+      <h3>texto de los mensajes</h3>
       <div class="line"><input class="d" id="ypTxt" placeholder="quedaron en yapear:" autocomplete="off"></div>
-      <p class="hint">es lo que va antes de los nombres. si lo dejas vacío, la app pone "quedaron en yapear:" (o "quedó en yapear:" cuando es una sola persona). este mensaje es solo de la app: no sale en el excel.</p>
+      <div class="line"><input class="d" id="npTxt" placeholder="no pagaron:" autocomplete="off"></div>
+      <p class="hint">es lo que va antes de los nombres. si lo dejas vacío, la app pone "quedaron en yapear:" y "no pagaron:" (en singular cuando es una sola persona). en yapear salen solo los que tienen yp sin pago; en no pagaron, los que tienen 0. estos mensajes son solo de la app: no salen en el excel.</p>
     </div>
   </section>
 </div>
@@ -534,24 +535,39 @@ function autoShort(c){
   return nx ? cap(t[0]) + ' ' + cap(nx) : cap(t[0]);
 }
 const shortOf = c => (c.short && String(c.short).trim()) || autoShort(c);
-function ypClients(){ const d = curDay(); return S.config.clients.filter(c => isYP((d.cl[c.cod] || {}).d)); }
-function ypNames(){ const seen = new Set(), out = []; ypClients().forEach(c => { const n = shortOf(c), k = fold(n); if (!seen.has(k)){ seen.add(k); out.push(n); } }); return out; }
-function ypText(){ const n = ypNames(); if (!n.length) return ''; const pre = String(S.config.ypMsg || (n.length === 1 ? YP_ONE : YP_DEF)).trim(); return (pre + ' ' + n.join(', ')).trim(); }
+/* yapear: yp sin pago (monto vacío o 0). no pagaron: monto 0 sin yp */
+const NP_DEF = 'no pagaron:', NP_ONE = 'no pagó:';
+function ypClients(){ const d = curDay(); return S.config.clients.filter(c => { const e = d.cl[c.cod] || {}; return isYP(e.d) && !(typeof e.c === 'number' && e.c > 0); }); }
+function npClients(){ const d = curDay(); return S.config.clients.filter(c => { const e = d.cl[c.cod] || {}; return e.c === 0 && !isYP(e.d); }); }
+function namesOf(cs){ const seen = new Set(), out = []; cs.forEach(c => { const n = shortOf(c), k = fold(n); if (!seen.has(k)){ seen.add(k); out.push(n); } }); return out; }
+const ypNames = () => namesOf(ypClients());
+function msgText(kind){
+  const n = namesOf(kind === 'np' ? npClients() : ypClients()); if (!n.length) return '';
+  const pre = kind === 'np' ? String(S.config.npMsg || (n.length === 1 ? NP_ONE : NP_DEF)) : String(S.config.ypMsg || (n.length === 1 ? YP_ONE : YP_DEF));
+  return (pre.trim() + ' ' + n.join(', ')).trim();
+}
+const ypText = () => msgText('yp');
+function msgCard(kind, title){
+  const t = msgText(kind); if (!t) return '';
+  return `<div class="card msg"><h3>${title} · ${dlong(S.date)}</h3><div class="mt">${esc2(t)}</div><div class="ma"><button class="btn s p" data-ycopy="${kind}">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(t)}">whatsapp</a></div></div>`;
+}
 function paintYP(){
   if (document.activeElement !== $('#ypTxt')) $('#ypTxt').value = S.config.ypMsg || '';
-  const cs = ypClients(), names = ypNames(), txt = ypText();
-  $('nav button[data-v=v5]').textContent = 'mensajes' + (names.length ? ' ' + names.length : '');
-  $('#ypOut').innerHTML = txt
-    ? `<div class="card msg"><h3>mensaje del día · ${dlong(S.date)}</h3><div class="mt">${esc2(txt)}</div><div class="ma"><button class="btn s p" data-ycopy="1">copiar</button><a class="btn s" target="_blank" rel="noopener" href="${waUrl(txt)}">whatsapp</a></div></div>`
-    : '<div class="empty">no hay clientes con yp en este día.<br>cuando marques yp a un cliente, su nombre se suma al mensaje.</div>';
+  if (document.activeElement !== $('#npTxt')) $('#npTxt').value = S.config.npMsg || '';
+  const yc = ypClients(), nc = npClients(), cnt = namesOf(yc).length + namesOf(nc).length;
+  $('nav button[data-v=v5]').textContent = 'mensajes' + (cnt ? ' ' + cnt : '');
+  const html = msgCard('yp', 'quedaron en yapear') + msgCard('np', 'no pagaron');
+  $('#ypOut').innerHTML = html || '<div class="empty">no hay mensajes en este día.<br>marca yp a un cliente sin pago, o ponle 0, y su nombre se suma al mensaje.</div>';
+  const cs = yc.concat(nc);
   if (!$('#ypNames').contains(document.activeElement)) $('#ypNames').innerHTML = cs.length
     ? '<div class="card"><h3>cómo sale cada nombre</h3>' + cs.map(c => `<div class="yn"><small>${esc2(c.cod)} · ${esc2(c.name)}</small><input data-ys="${esc2(c.cod)}" value="${esc2(shortOf(c))}" placeholder="${esc2(autoShort(c))}" autocomplete="off"></div>`).join('') + '<p class="hint">cambia aquí el nombre corto de un cliente. queda guardado para los próximos días.</p></div>'
     : '';
 }
 function sheetYP(){
   const box = $('#shY'); if (!box || !S.cur) return;
-  const c = S.config.clients.find(x=>x.cod===S.cur), e = curDay().cl[S.cur] || {};
-  box.innerHTML = c && isYP(e.d) ? `<div class="ybox"><small>sumado al mensaje de yapear como</small><div class="mt">${esc2(shortOf(c))}</div></div>` : '';
+  const c = S.config.clients.find(x=>x.cod===S.cur); if (!c) { box.innerHTML = ''; return; }
+  const inY = ypClients().some(x=>x.cod===c.cod), inN = npClients().some(x=>x.cod===c.cod);
+  box.innerHTML = inY || inN ? `<div class="ybox"><small>sumado al mensaje de ${inY ? 'quedaron en yapear' : 'no pagaron'} como</small><div class="mt">${esc2(shortOf(c))}</div></div>` : '';
 }
 /* ---------- créditos: entregas en "gastos y entregas" con (porcentaje días) ---------- */
 function parseCred(txt){
@@ -720,7 +736,8 @@ $('#tabs').addEventListener('click', e=>{
   $('.bar').style.display = b.dataset.v==='v3' || b.dataset.v==='v4' || b.dataset.v==='v5' ? 'none' : '';
 });
 $('#ypTxt').addEventListener('input', e=>{ const v = e.target.value.trim(); if (v) S.config.ypMsg = v; else delete S.config.ypMsg; saveCfg(); paintYP(); });
-$('#ypOut').addEventListener('click', e=>{ if (e.target.closest('[data-ycopy]')) copyText(ypText()); });
+$('#npTxt').addEventListener('input', e=>{ const v = e.target.value.trim(); if (v) S.config.npMsg = v; else delete S.config.npMsg; saveCfg(); paintYP(); });
+$('#ypOut').addEventListener('click', e=>{ const b = e.target.closest('[data-ycopy]'); if (b) copyText(msgText(b.dataset.ycopy)); });
 $('#ypNames').addEventListener('input', e=>{
   const cod = e.target.dataset.ys; if (cod === undefined) return;
   const c = S.config.clients.find(x=>x.cod===cod); if (!c) return;
@@ -744,7 +761,7 @@ $('#sheet').addEventListener('click', e=>{
   if (t.dataset.ch !== undefined){ const e2 = curDay().cl[S.cur] || {}; setEntry(S.cur, {d: e2.d===t.dataset.ch ? '' : t.dataset.ch}); return sheetSync(); }
 });
 $('#sheet').addEventListener('input', e=>{
-  if (e.target.id==='shC'){ const v = parseMoney(e.target.value); setEntry(S.cur, {c: v}); }
+  if (e.target.id==='shC'){ const v = parseMoney(e.target.value); setEntry(S.cur, {c: v}); sheetYP(); }
   if (e.target.id==='shD'){ setEntry(S.cur, {d: e.target.value}); $('#shChips').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ch===e.target.value)); sheetYP(); sheetE(); }
 });
 /* solucionando */
